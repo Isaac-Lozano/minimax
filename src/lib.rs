@@ -25,7 +25,7 @@ impl Team
     }
 }
 
-#[derive(PartialEq,Eq,PartialOrd,Ord,Copy,Clone,Debug)]
+#[derive(PartialEq,Eq,PartialOrd,Ord,Copy,Clone,Debug,Hash)]
 pub enum Score
 {
     Lose,
@@ -60,7 +60,7 @@ pub struct MoveStats<M>
 pub struct Minimax<B: Board>
 {
     /* TODO: Some sort of caching */
-    phantom: PhantomData<B>
+    phantom: PhantomData<B>,
 }
 
 impl<B: Board> Minimax<B>
@@ -78,17 +78,19 @@ impl<B: Board> Minimax<B>
     /// `turn` is the current player.
     pub fn minimax(&mut self, board: &B, turn: Team, plies: u32) -> MoveStats<B::Move>
     {
-        match turn
+        let mut optimal_move = match turn
         {
             Team::Ally =>
-                self.max(board, plies),
+                self.max(board, plies, Score::Lose, Score::Win),
             Team::Enemy =>
-                self.min(board, plies),
-        }
+                self.min(board, plies, Score::Lose, Score::Win),
+        };
+        optimal_move.nodes_visited += 1;
+        optimal_move
     }
 
     /// Generates best move for ally
-    fn max(&mut self, board: &B, plies: u32) -> MoveStats<B::Move>
+    fn max(&mut self, board: &B, plies: u32, mut alpha: Score, beta: Score) -> MoveStats<B::Move>
     {
         let moves = board.gen_ally_moves();
 
@@ -131,22 +133,33 @@ impl<B: Board> Minimax<B>
             board_clone.do_move(&mv);
     
             /* Find enemy's best move */
-            let enemy_move = self.min(&board_clone, plies - 1);
-    
+            let enemy_move = self.min(&board_clone, plies - 1, alpha, beta);
+
             /* TODO: Try to postpone losing */
-            if best.mv.is_none() || enemy_move.score > best.score || (enemy_move.score == best.score && enemy_move.turns < best.turns)
+            if best.mv.is_none() || (enemy_move.score, -(enemy_move.turns as i32)) > (best.score, -(best.turns as i32))
             {
                 best.mv = Some(mv);
                 best.score = enemy_move.score;
                 best.turns = enemy_move.turns + 1;
             }
+
             best.nodes_visited += enemy_move.nodes_visited + 1;
+
+            /* Set α and break on β ≤ α */
+            if best.score > alpha
+            {
+                alpha = enemy_move.score;
+            }
+            if alpha >= beta
+            {
+                break;
+            }
         }
         best
     }
 
     /// Generates best move for enemy
-    fn min(&mut self, board: &B, plies: u32) -> MoveStats<B::Move>
+    fn min(&mut self, board: &B, plies: u32, alpha: Score, mut beta: Score) -> MoveStats<B::Move>
     {
         let moves = board.gen_enemy_moves();
 
@@ -190,32 +203,261 @@ impl<B: Board> Minimax<B>
             board_clone.do_move(&mv);
 
             /* Find ally's best move */
-            let ally_move = self.max(&board_clone, plies - 1);
+            let ally_move = self.max(&board_clone, plies - 1, alpha, beta);
 
             /* TODO: Try to postpone losing */
-            if best.mv.is_none() || ally_move.score < best.score || (ally_move.score == best.score && ally_move.turns < best.turns)
+            if best.mv.is_none() || (ally_move.score, -(ally_move.turns as i32)) < (best.score, -(best.turns as i32))
             {
                 best.mv = Some(mv);
                 best.score = ally_move.score;
                 best.turns = ally_move.turns + 1;
             }
+
             best.nodes_visited += ally_move.nodes_visited + 1;
+
+            /* Set β and break on β ≤ α */
+            if best.score < beta
+            {
+                beta = ally_move.score;
+            }
+            if alpha >= beta
+            {
+                break;
+            }
         }
         best
     }
 }
 
-#[test]
-fn test_score_ord()
+#[cfg(test)]
+mod tests
 {
-    assert!(Score::Win > Score::Heuristic(0));
-    assert!(Score::Heuristic(0) > Score::Lose);
-    assert!(Score::Win > Score::Lose);
-    assert!(Score::Heuristic(100) > Score::Heuristic(0));
-    assert!(Score::Heuristic(0) > Score::Heuristic(-100));
-    assert!(Score::Win == Score::Win);
-    assert!(Score::Lose == Score::Lose);
-    assert!(Score::Heuristic(0) == Score::Heuristic(0));
-}
+    use super::{Team, Score, Minimax, MoveStats};
+    use board::Board;
 
-/* TODO: minimax tests */
+    #[derive(PartialEq,Eq,Debug)]
+    struct SimpleMove(usize);
+    #[derive(Clone,PartialEq,Eq,Hash,Debug)]
+    enum SimpleBoard
+    {
+        Node(Vec<SimpleBoard>),
+        Leaf(Score),
+    }
+
+    /* These aren't really efficient, but they
+     * work for testing.
+     */
+    impl Board for SimpleBoard
+    {
+        type Move = SimpleMove;
+
+        fn gen_ally_moves(&self) -> Vec<Self::Move>
+        {
+            match *self
+            {
+                SimpleBoard::Node(ref v) =>
+                    (0..v.len()).map(|u| SimpleMove(u)).collect(),
+                SimpleBoard::Leaf(_) =>
+                    /* Trick the algorithm into thinking
+                     * we still have moves left
+                     */
+                    vec![SimpleMove(1)],
+            }
+        }
+
+        fn gen_enemy_moves(&self) -> Vec<Self::Move>
+        {
+            match *self
+            {
+                SimpleBoard::Node(ref v) =>
+                    (0..v.len()).map(|u| SimpleMove(u)).collect(),
+                SimpleBoard::Leaf(_) =>
+                    /* Trick the algorithm into thinking
+                     * we still have moves left
+                     */
+                    vec![SimpleMove(1)],
+            }
+        }
+
+        fn do_move(&mut self, mv: &Self::Move)
+        {
+            let child = match *self
+            {
+                SimpleBoard::Node(ref v) =>
+                    Some(v[mv.0].clone()),
+                SimpleBoard::Leaf(_) =>
+                    None,
+            };
+
+            if let Some(c) = child
+            {
+                *self = c;
+            }
+        }
+
+        fn score(&self) -> Score
+        {
+            match *self
+            {
+                SimpleBoard::Node(_) =>
+                    unreachable!(),
+                SimpleBoard::Leaf(s) =>
+                    s,
+            }
+        }
+
+        fn is_game_over(&self) -> bool
+        {
+            match *self
+            {
+                SimpleBoard::Node(_) =>
+                    false,
+                SimpleBoard::Leaf(_) =>
+                    true,
+            }
+        }
+    }
+
+    #[test]
+    fn test_score_ord()
+    {
+        assert!(Score::Win > Score::Heuristic(0));
+        assert!(Score::Heuristic(0) > Score::Lose);
+        assert!(Score::Win > Score::Lose);
+        assert!(Score::Heuristic(100) > Score::Heuristic(0));
+        assert!(Score::Heuristic(0) > Score::Heuristic(-100));
+        assert!(Score::Win == Score::Win);
+        assert!(Score::Lose == Score::Lose);
+        assert!(Score::Heuristic(0) == Score::Heuristic(0));
+    }
+
+    #[test]
+    fn test_minimax()
+    {
+        let mut minimax = Minimax::new();
+        let game1 =
+        SimpleBoard::Node(vec![
+            SimpleBoard::Node(vec![
+                SimpleBoard::Node(vec![
+                    SimpleBoard::Node(vec![
+                        SimpleBoard::Leaf(Score::Heuristic(5)),
+                        SimpleBoard::Leaf(Score::Heuristic(6)),
+                    ]),
+                    SimpleBoard::Node(vec![
+                        SimpleBoard::Leaf(Score::Heuristic(7)),
+                        SimpleBoard::Leaf(Score::Heuristic(4)),
+                        SimpleBoard::Leaf(Score::Heuristic(5)),
+                    ]),
+                ]),
+                SimpleBoard::Node(vec![
+                    SimpleBoard::Node(vec![
+                        SimpleBoard::Leaf(Score::Heuristic(3)),
+                    ]),
+                ]),
+            ]),
+            SimpleBoard::Node(vec![
+                SimpleBoard::Node(vec![
+                    SimpleBoard::Node(vec![
+                        SimpleBoard::Leaf(Score::Heuristic(6)),
+                    ]),
+                    SimpleBoard::Node(vec![
+                        SimpleBoard::Leaf(Score::Heuristic(6)),
+                        SimpleBoard::Leaf(Score::Heuristic(9)),
+                    ]),
+                ]),
+                SimpleBoard::Node(vec![
+                    SimpleBoard::Node(vec![
+                        SimpleBoard::Leaf(Score::Heuristic(7)),
+                    ]),
+                ]),
+            ]),
+            SimpleBoard::Node(vec![
+                SimpleBoard::Node(vec![
+                    SimpleBoard::Node(vec![
+                        SimpleBoard::Leaf(Score::Heuristic(5)),
+                    ]),
+                ]),
+                SimpleBoard::Node(vec![
+                    SimpleBoard::Node(vec![
+                        SimpleBoard::Leaf(Score::Heuristic(9)),
+                        SimpleBoard::Leaf(Score::Heuristic(8)),
+                    ]),
+                    SimpleBoard::Node(vec![
+                        SimpleBoard::Leaf(Score::Heuristic(6)),
+                    ]),
+                ]),
+            ]),
+        ]);
+        let game2 =
+        SimpleBoard::Node(vec![
+            SimpleBoard::Node(vec![
+                SimpleBoard::Node(vec![
+                    SimpleBoard::Node(vec![
+                        SimpleBoard::Leaf(Score::Heuristic(12)),
+                        SimpleBoard::Leaf(Score::Heuristic(10)),
+                    ]),
+                    SimpleBoard::Node(vec![
+                        SimpleBoard::Leaf(Score::Heuristic(-18)),
+                        SimpleBoard::Leaf(Score::Heuristic(-7)),
+                    ]),
+                ]),
+                SimpleBoard::Node(vec![
+                    SimpleBoard::Node(vec![
+                        SimpleBoard::Leaf(Score::Heuristic(6)),
+                        SimpleBoard::Leaf(Score::Heuristic(-17)),
+                    ]),
+                    SimpleBoard::Node(vec![
+                        SimpleBoard::Leaf(Score::Heuristic(-3)),
+                        SimpleBoard::Leaf(Score::Heuristic(6)),
+                    ]),
+                ]),
+            ]),
+            SimpleBoard::Node(vec![
+                SimpleBoard::Node(vec![
+                    SimpleBoard::Node(vec![
+                        SimpleBoard::Leaf(Score::Heuristic(-19)),
+                        SimpleBoard::Leaf(Score::Heuristic(-16)),
+                    ]),
+                    SimpleBoard::Node(vec![
+                        SimpleBoard::Leaf(Score::Heuristic(-4)),
+                        SimpleBoard::Leaf(Score::Heuristic(-6)),
+                    ]),
+                ]),
+                SimpleBoard::Node(vec![
+                    SimpleBoard::Node(vec![
+                        SimpleBoard::Leaf(Score::Heuristic(-1)),
+                        SimpleBoard::Leaf(Score::Heuristic(6)),
+                    ]),
+                    SimpleBoard::Node(vec![
+                        SimpleBoard::Leaf(Score::Heuristic(9)),
+                        SimpleBoard::Leaf(Score::Heuristic(15)),
+                    ]),
+                ]),
+            ]),
+        ]);
+
+        println!();
+        println!("Game 1");
+        assert_eq!(game1.gen_ally_moves(), vec![SimpleMove(0), SimpleMove(1), SimpleMove(2)]);
+        let move_stats1 = minimax.minimax(&game1, Team::Ally, 4);
+        let optimal_move1 = MoveStats {
+            mv: Some(SimpleMove(1)),
+            score: Score::Heuristic(6),
+            turns: 4,
+            nodes_visited: 25,
+        };
+        assert_eq!(move_stats1, optimal_move1);
+
+        println!();
+        println!("Game 2");
+        assert_eq!(game2.gen_ally_moves(), vec![SimpleMove(0), SimpleMove(1)]);
+        let move_stats2 = minimax.minimax(&game2, Team::Ally, 4);
+        let optimal_move2 = MoveStats {
+            mv: Some(SimpleMove(0)),
+            score: Score::Heuristic(-3),
+            turns: 4,
+            nodes_visited: 21,
+        };
+        assert_eq!(move_stats2, optimal_move2);
+    }
+}
