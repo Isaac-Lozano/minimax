@@ -4,7 +4,7 @@ use board::Board;
 
 use std::i32;
 use std::ops::Neg;
-use std::collections::HashMap;
+use std::marker::PhantomData;
 
 #[derive(Copy,Clone,Debug)]
 pub enum Team
@@ -59,8 +59,8 @@ pub struct MoveStats<M>
 #[derive(Clone,Debug)]
 pub struct Minimax<B: Board>
 {
-    ally_move_cache: HashMap<B, Vec<B::Move>>,
-    enemy_move_cache: HashMap<B, Vec<B::Move>>,
+    /* TODO: Some sort of caching */
+    phantom: PhantomData<B>
 }
 
 impl<B: Board> Minimax<B>
@@ -69,8 +69,7 @@ impl<B: Board> Minimax<B>
     {
         Minimax
         {
-            ally_move_cache: HashMap::new(),
-            enemy_move_cache: HashMap::new(),
+            phantom: PhantomData,
         }
     }
 
@@ -91,16 +90,7 @@ impl<B: Board> Minimax<B>
     /// Generates best move for ally
     fn max(&mut self, board: &B, plies: u32) -> MoveStats<B::Move>
     {
-        let moves;
-//        if let Some(cached_moves) = self.ally_move_cache.get(board).map(|m| m.to_owned())
-//        {
-//            moves = cached_moves;
-//        }
-//        else
-//        {
-            moves = board.gen_ally_moves();
-//            self.ally_move_cache.insert(board.clone(), moves.clone());
-//        }
+        let moves = board.gen_ally_moves();
 
         /* Fail state if you can't move */
         if moves.len() == 0
@@ -136,10 +126,6 @@ impl<B: Board> Minimax<B>
 
             for mv in moves
             {
-                if plies == 7
-                {
-//                    println!("Move {:#?}", mv);
-                }
 
                 /* Make a clone of the board so we don't break this one */
                 let mut board_clone = board.clone();
@@ -147,10 +133,6 @@ impl<B: Board> Minimax<B>
     
                 /* Find enemy's best move */
                 let enemy_move = self.min(&board_clone, plies - 1);
-                if plies == 7
-                {
-//                    println!("ENEMY {:#?}", enemy_move);
-                }
     
                 /* TODO: Try to postpone losing */
                 if best.mv.is_none() || enemy_move.score > best.score || (enemy_move.score == best.score && enemy_move.turns < best.turns)
@@ -168,16 +150,7 @@ impl<B: Board> Minimax<B>
     /// Generates best move for enemy
     fn min(&mut self, board: &B, plies: u32) -> MoveStats<B::Move>
     {
-        let moves;
-//        if let Some(cached_moves) = self.enemy_move_cache.get(board).map(|m| m.to_owned())
-//        {
-//            moves = cached_moves;
-//        }
-//        else
-//        {
-            moves = board.gen_enemy_moves();
-//            self.enemy_move_cache.insert(board.clone(), moves.clone());
-//        }
+        let moves = board.gen_enemy_moves();
 
         /* Fail state if you can't move */
         if moves.len() == 0
@@ -248,3 +221,5 @@ fn test_score_ord()
     assert!(Score::Lose == Score::Lose);
     assert!(Score::Heuristic(0) == Score::Heuristic(0));
 }
+
+/* TODO: minimax tests */
