@@ -57,7 +57,7 @@ pub struct MoveStats<M>
 }
 
 #[derive(Clone,Debug)]
-pub struct Minimax<B: Board>
+pub struct Minimax<B>
 {
     /* TODO: Some sort of caching */
     phantom: PhantomData<B>,
