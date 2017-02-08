@@ -107,7 +107,7 @@ impl<B: Board> Minimax<B>
         /* If you cannot proceed further */
         if plies == 0 || board.is_game_over()
         {
-            MoveStats
+            return MoveStats
             {
                 mv: None,
                 score: board.score(),
@@ -115,36 +115,34 @@ impl<B: Board> Minimax<B>
                 nodes_visited: 0,
             }
         }
-        else
+
+        let mut best = MoveStats {
+            mv: None,
+            score: Score::Lose,
+            turns: 0,
+            nodes_visited: 0,
+        };
+
+        for mv in moves
         {
-            let mut best = MoveStats {
-                mv: None,
-                score: Score::Lose,
-                turns: 0,
-                nodes_visited: 0,
-            };
 
-            for mv in moves
+            /* Make a clone of the board so we don't break this one */
+            let mut board_clone = board.clone();
+            board_clone.do_move(&mv);
+    
+            /* Find enemy's best move */
+            let enemy_move = self.min(&board_clone, plies - 1);
+    
+            /* TODO: Try to postpone losing */
+            if best.mv.is_none() || enemy_move.score > best.score || (enemy_move.score == best.score && enemy_move.turns < best.turns)
             {
-
-                /* Make a clone of the board so we don't break this one */
-                let mut board_clone = board.clone();
-                board_clone.do_move(&mv);
-    
-                /* Find enemy's best move */
-                let enemy_move = self.min(&board_clone, plies - 1);
-    
-                /* TODO: Try to postpone losing */
-                if best.mv.is_none() || enemy_move.score > best.score || (enemy_move.score == best.score && enemy_move.turns < best.turns)
-                {
-                    best.mv = Some(mv);
-                    best.score = enemy_move.score;
-                    best.turns = enemy_move.turns + 1;
-                }
-                best.nodes_visited += enemy_move.nodes_visited + 1;
+                best.mv = Some(mv);
+                best.score = enemy_move.score;
+                best.turns = enemy_move.turns + 1;
             }
-            best
+            best.nodes_visited += enemy_move.nodes_visited + 1;
         }
+        best
     }
 
     /// Generates best move for enemy
@@ -168,7 +166,7 @@ impl<B: Board> Minimax<B>
         /* If you cannot proceed further */
         if plies == 0 || board.is_game_over()
         {
-            MoveStats
+            return MoveStats
             {
                 mv: None,
                 score: board.score(),
@@ -176,36 +174,34 @@ impl<B: Board> Minimax<B>
                 nodes_visited: 0,
             }
         }
-        else
+
+        let mut best = MoveStats {
+            mv: None,
+            /* Technically doesn't matter, but for consistancy's sake */
+            score: Score::Win,
+            turns: 0,
+            nodes_visited: 0,
+        };
+
+        for mv in moves
         {
-            let mut best = MoveStats {
-                mv: None,
-                /* Technically doesn't matter, but for consistancy's sake */
-                score: Score::Win,
-                turns: 0,
-                nodes_visited: 0,
-            };
+            /* Make a clone of the board so we don't break this one */
+            let mut board_clone = board.clone();
+            board_clone.do_move(&mv);
 
-            for mv in moves
+            /* Find ally's best move */
+            let ally_move = self.max(&board_clone, plies - 1);
+
+            /* TODO: Try to postpone losing */
+            if best.mv.is_none() || ally_move.score < best.score || (ally_move.score == best.score && ally_move.turns < best.turns)
             {
-                /* Make a clone of the board so we don't break this one */
-                let mut board_clone = board.clone();
-                board_clone.do_move(&mv);
-
-                /* Find ally's best move */
-                let ally_move = self.max(&board_clone, plies - 1);
-
-                /* TODO: Try to postpone losing */
-                if best.mv.is_none() || ally_move.score < best.score || (ally_move.score == best.score && ally_move.turns < best.turns)
-                {
-                    best.mv = Some(mv);
-                    best.score = ally_move.score;
-                    best.turns = ally_move.turns + 1;
-                }
-                best.nodes_visited += ally_move.nodes_visited + 1;
+                best.mv = Some(mv);
+                best.score = ally_move.score;
+                best.turns = ally_move.turns + 1;
             }
-            best
+            best.nodes_visited += ally_move.nodes_visited + 1;
         }
+        best
     }
 }
 
