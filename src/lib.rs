@@ -1,10 +1,12 @@
 pub mod board;
+pub mod transposition_table;
 
 use board::Board;
+use transposition_table::TranspositionTable;
 
 use std::i32;
 use std::ops::Neg;
-use std::marker::PhantomData;
+use std::hash::Hash;
 
 #[derive(Copy,Clone,Debug)]
 pub enum Team
@@ -56,20 +58,24 @@ pub struct MoveStats<M>
     pub nodes_visited: u64,
 }
 
-#[derive(Clone,Debug)]
+#[derive(Clone)]
 pub struct Minimax<B>
+    where B: Board + Eq + Hash
 {
     /* TODO: Some sort of caching */
-    phantom: PhantomData<B>,
+    ally_ttable: TranspositionTable<B, MoveStats<B::Move>>,
+    enemy_ttable: TranspositionTable<B, MoveStats<B::Move>>,
 }
 
-impl<B: Board> Minimax<B>
+impl<B> Minimax<B>
+    where B: Board + Eq + Hash
 {
     pub fn new() -> Minimax<B>
     {
         Minimax
         {
-            phantom: PhantomData,
+            ally_ttable: TranspositionTable::new(),
+            enemy_ttable: TranspositionTable::new(),
         }
     }
 
@@ -125,6 +131,11 @@ impl<B: Board> Minimax<B>
             nodes_visited: 0,
         };
 
+        if let Some(precomputed_move) = self.ally_ttable.get(board, plies)
+        {
+            return precomputed_move;
+        }
+
         for mv in moves
         {
 
@@ -155,6 +166,9 @@ impl<B: Board> Minimax<B>
                 break;
             }
         }
+
+        self.ally_ttable.insert(board.clone(), best.clone(), plies);
+
         best
     }
 
@@ -196,6 +210,11 @@ impl<B: Board> Minimax<B>
             nodes_visited: 0,
         };
 
+        if let Some(precomputed_move) = self.enemy_ttable.get(board, plies)
+        {
+            return precomputed_move;
+        }
+
         for mv in moves
         {
             /* Make a clone of the board so we don't break this one */
@@ -225,6 +244,9 @@ impl<B: Board> Minimax<B>
                 break;
             }
         }
+
+        self.enemy_ttable.insert(board.clone(), best.clone(), plies);
+
         best
     }
 }
@@ -235,7 +257,7 @@ mod tests
     use super::{Team, Score, Minimax, MoveStats};
     use board::Board;
 
-    #[derive(PartialEq,Eq,Debug)]
+    #[derive(Clone,PartialEq,Eq,Debug)]
     struct SimpleMove(usize);
     #[derive(Clone,PartialEq,Eq,Hash,Debug)]
     enum SimpleBoard
@@ -450,6 +472,18 @@ mod tests
 
         println!();
         println!("Game 2");
+        assert_eq!(game2.gen_ally_moves(), vec![SimpleMove(0), SimpleMove(1)]);
+        let move_stats2 = minimax.minimax(&game2, Team::Ally, 4);
+        let optimal_move2 = MoveStats {
+            mv: Some(SimpleMove(0)),
+            score: Score::Heuristic(-3),
+            turns: 4,
+            nodes_visited: 21,
+        };
+        assert_eq!(move_stats2, optimal_move2);
+
+        println!();
+        println!("Testing caching");
         assert_eq!(game2.gen_ally_moves(), vec![SimpleMove(0), SimpleMove(1)]);
         let move_stats2 = minimax.minimax(&game2, Team::Ally, 4);
         let optimal_move2 = MoveStats {
