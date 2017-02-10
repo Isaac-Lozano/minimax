@@ -358,7 +358,7 @@ mod tests
     #[test]
     fn test_minimax()
     {
-        let mut minimax = Minimax::new();
+        let mut minimax = Minimax::new(100);
         let game1 =
         SimpleBoard::Node(vec![
             SimpleBoard::Node(vec![
