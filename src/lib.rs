@@ -1,3 +1,5 @@
+extern crate lru_cache;
+
 pub mod board;
 pub mod transposition_table;
 
@@ -70,12 +72,12 @@ pub struct Minimax<B>
 impl<B> Minimax<B>
     where B: Board + Eq + Hash
 {
-    pub fn new() -> Minimax<B>
+    pub fn new(ttable_size: usize) -> Minimax<B>
     {
         Minimax
         {
-            ally_ttable: TranspositionTable::new(),
-            enemy_ttable: TranspositionTable::new(),
+            ally_ttable: TranspositionTable::new(ttable_size),
+            enemy_ttable: TranspositionTable::new(ttable_size),
         }
     }
 

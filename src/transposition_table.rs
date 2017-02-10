@@ -1,27 +1,28 @@
+use lru_cache::LruCache;
+
 use std::hash::Hash;
-use std::collections::HashMap;
 
 #[derive(Clone)]
 pub struct TranspositionTable<B, M>
     where B: Eq + Hash
 {
-    cache: HashMap<B, (M, u32)>,
+    cache: LruCache<B, (M, u32)>,
 }
 
 impl<B, M> TranspositionTable<B, M>
     where B: Eq + Hash,
           M: Clone
 {
-    pub fn new() -> TranspositionTable<B, M>
+    pub fn new(capacity: usize) -> TranspositionTable<B, M>
     {
         TranspositionTable {
-            cache: HashMap::new(),
+            cache: LruCache::new(capacity),
         }
     }
 
     pub fn get(&mut self, board: &B, depth: u32) -> Option<M>
     {
-        if let Some(precomputed_move) = self.cache.get(board)
+        if let Some(precomputed_move) = self.cache.get_mut(board)
         {
             if precomputed_move.1 >= depth
             {
