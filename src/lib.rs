@@ -9,6 +9,7 @@ use transposition_table::TranspositionTable;
 use std::i32;
 use std::ops::Neg;
 use std::hash::Hash;
+use std::cmp::Ordering;
 
 #[derive(Copy,Clone,Debug)]
 pub enum Team
@@ -60,11 +61,36 @@ pub struct MoveStats<M>
     pub nodes_visited: u64,
 }
 
+impl<M> PartialOrd for MoveStats<M>
+    where M: Eq
+{
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<M> Ord for MoveStats<M>
+    where M: Eq
+{
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.score.cmp(&other.score) {
+            Ordering::Less => Ordering::Less,
+            Ordering::Equal => {
+                match self.score.cmp(&Score::Heuristic(0)) {
+                    Ordering::Less => self.turns.cmp(&other.turns),
+                    Ordering::Equal => Ordering::Equal,
+                    Ordering::Greater => other.turns.cmp(&self.turns)
+                }
+            }
+            Ordering::Greater => Ordering::Greater,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct Minimax<B>
     where B: Board + Eq + Hash
 {
-    /* TODO: Some sort of caching */
     ally_ttable: TranspositionTable<B, MoveStats<B::Move>>,
     enemy_ttable: TranspositionTable<B, MoveStats<B::Move>>,
 }
@@ -148,8 +174,7 @@ impl<B> Minimax<B>
             /* Find enemy's best move */
             let enemy_move = self.min(&board_clone, plies - 1, alpha, beta);
 
-            /* TODO: Try to postpone losing */
-            if best.mv.is_none() || (enemy_move.score, -(enemy_move.turns as i32)) > (best.score, -(best.turns as i32))
+            if best.mv.is_none() || enemy_move > best
             {
                 best.mv = Some(mv);
                 best.score = enemy_move.score;
@@ -226,8 +251,7 @@ impl<B> Minimax<B>
             /* Find ally's best move */
             let ally_move = self.max(&board_clone, plies - 1, alpha, beta);
 
-            /* TODO: Try to postpone losing */
-            if best.mv.is_none() || (ally_move.score, -(ally_move.turns as i32)) < (best.score, -(best.turns as i32))
+            if best.mv.is_none() || ally_move < best
             {
                 best.mv = Some(mv);
                 best.score = ally_move.score;
