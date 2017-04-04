@@ -61,6 +61,22 @@ pub struct MoveStats<M>
     pub nodes_visited: u64,
 }
 
+impl<M> MoveStats<M> {
+    fn enemy_cmp(&self, other: &Self) -> Ordering {
+        match self.score.cmp(&other.score) {
+            Ordering::Less => Ordering::Less,
+            Ordering::Equal => {
+                match self.score.cmp(&Score::Heuristic(0)) {
+                    Ordering::Less => other.turns.cmp(&self.turns),
+                    Ordering::Equal => Ordering::Equal,
+                    Ordering::Greater => self.turns.cmp(&other.turns)
+                }
+            }
+            Ordering::Greater => Ordering::Greater,
+        }
+    }
+}
+
 impl<M> PartialOrd for MoveStats<M>
     where M: Eq
 {
@@ -251,7 +267,7 @@ impl<B> Minimax<B>
             /* Find ally's best move */
             let ally_move = self.max(&board_clone, plies - 1, alpha, beta);
 
-            if best.mv.is_none() || ally_move < best
+            if best.mv.is_none() || ally_move.enemy_cmp(&best) == Ordering::Less
             {
                 best.mv = Some(mv);
                 best.score = ally_move.score;
