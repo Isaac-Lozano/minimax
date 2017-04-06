@@ -365,7 +365,6 @@ impl<B> NonBlockingMinimax<B>
                     match minimax.minimax(&args.board, args.team, plies) {
                         Some(result) => {
                             best = Some(result);
-                            println!("Got to ply {}.", plies);
                             plies += 1;
                         }
                         None => break,
