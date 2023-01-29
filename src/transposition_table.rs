@@ -1,8 +1,8 @@
-use lru_cache::LruCache;
+use lru::LruCache;
 
 use std::hash::Hash;
+use std::num::NonZeroUsize;
 
-#[derive(Clone)]
 pub struct TranspositionTable<B, M>
     where B: Eq + Hash
 {
@@ -13,7 +13,7 @@ impl<B, M> TranspositionTable<B, M>
     where B: Eq + Hash,
           M: Clone
 {
-    pub fn new(capacity: usize) -> TranspositionTable<B, M>
+    pub fn new(capacity: NonZeroUsize) -> TranspositionTable<B, M>
     {
         TranspositionTable {
             cache: LruCache::new(capacity),
@@ -22,7 +22,7 @@ impl<B, M> TranspositionTable<B, M>
 
     pub fn get(&mut self, board: &B, depth: u32) -> Option<M>
     {
-        if let Some(precomputed_move) = self.cache.get_mut(board)
+        if let Some(precomputed_move) = self.cache.get(board)
         {
             if precomputed_move.1 >= depth
             {
@@ -35,6 +35,6 @@ impl<B, M> TranspositionTable<B, M>
 
     pub fn insert(&mut self, board: B, mv: M, depth: u32)
     {
-        self.cache.insert(board, (mv, depth));
+        self.cache.put(board, (mv, depth));
     }
 }

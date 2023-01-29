@@ -1,4 +1,4 @@
-extern crate lru_cache;
+extern crate lru;
 
 pub mod board;
 pub mod transposition_table;
@@ -7,9 +7,11 @@ use board::Board;
 use transposition_table::TranspositionTable;
 
 use std::i32;
+use std::fmt;
 use std::ops::Neg;
 use std::hash::Hash;
 use std::cmp::Ordering;
+use std::num::NonZeroUsize;
 
 #[derive(Copy,Clone,Debug)]
 pub enum Team
@@ -52,42 +54,20 @@ impl Neg for Score
     }
 }
 
-#[derive(Clone,Debug,PartialEq,Eq)]
-pub struct MoveStats<M>
+#[derive(PartialEq,Eq,Copy,Clone,Debug,Hash)]
+pub struct TimedScore
 {
-    pub mv: Option<M>,
     pub score: Score,
     pub turns: u32,
-    pub nodes_visited: u64,
 }
 
-impl<M> MoveStats<M> {
-    fn enemy_cmp(&self, other: &Self) -> Ordering {
-        match self.score.cmp(&other.score) {
-            Ordering::Less => Ordering::Less,
-            Ordering::Equal => {
-                match self.score.cmp(&Score::Heuristic(0)) {
-                    Ordering::Less => other.turns.cmp(&self.turns),
-                    Ordering::Equal => Ordering::Equal,
-                    Ordering::Greater => self.turns.cmp(&other.turns)
-                }
-            }
-            Ordering::Greater => Ordering::Greater,
-        }
-    }
-}
-
-impl<M> PartialOrd for MoveStats<M>
-    where M: Eq
-{
+impl PartialOrd for TimedScore {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<M> Ord for MoveStats<M>
-    where M: Eq
-{
+impl Ord for TimedScore {
     fn cmp(&self, other: &Self) -> Ordering {
         match self.score.cmp(&other.score) {
             Ordering::Less => Ordering::Less,
@@ -103,7 +83,15 @@ impl<M> Ord for MoveStats<M>
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone,Debug,PartialEq,Eq)]
+pub struct MoveStats<M>
+{
+    pub mv: Option<M>,
+    pub score: TimedScore,
+    pub nodes_visited: u64,
+    pub mvs: Vec<M>,
+}
+
 pub struct Minimax<B>
     where B: Board + Eq + Hash
 {
@@ -114,7 +102,7 @@ pub struct Minimax<B>
 impl<B> Minimax<B>
     where B: Board + Eq + Hash
 {
-    pub fn new(ttable_size: usize) -> Minimax<B>
+    pub fn new(ttable_size: NonZeroUsize) -> Minimax<B>
     {
         Minimax
         {
@@ -127,20 +115,32 @@ impl<B> Minimax<B>
     ///
     /// `turn` is the current player.
     pub fn minimax(&mut self, board: &B, turn: Team, plies: u32) -> MoveStats<B::Move>
+    where <B as Board>::Move: fmt::Display
     {
+        let lose = TimedScore {
+            score: Score::Lose,
+            turns: 0,
+        };
+        let win = TimedScore {
+            score: Score::Win,
+            turns: 0,
+        };
+
         let mut optimal_move = match turn
         {
             Team::Ally =>
-                self.max(board, plies, Score::Lose, Score::Win),
+                self.max(board, plies, lose, win),
             Team::Enemy =>
-                self.min(board, plies, Score::Lose, Score::Win),
+                self.min(board, plies, lose, win),
         };
+
         optimal_move.nodes_visited += 1;
         optimal_move
     }
 
     /// Generates best move for ally
-    fn max(&mut self, board: &B, plies: u32, mut alpha: Score, beta: Score) -> MoveStats<B::Move>
+    fn max(&mut self, board: &B, plies: u32, mut alpha: TimedScore, beta: TimedScore) -> MoveStats<B::Move>
+    where <B as Board>::Move: fmt::Display
     {
         let moves = board.gen_ally_moves();
 
@@ -150,9 +150,12 @@ impl<B> Minimax<B>
             return MoveStats
             {
                 mv: None,
-                score: Score::Lose,
-                turns: 0,
+                score: TimedScore {
+                    score: Score::Lose,
+                    turns: 0,
+                },
                 nodes_visited: 0,
+                mvs: Vec::new(),
             };
         }
 
@@ -162,27 +165,33 @@ impl<B> Minimax<B>
             return MoveStats
             {
                 mv: None,
-                score: board.score(),
-                turns: 0,
+                score: TimedScore {
+                    score: board.score(),
+                    turns: 0,
+                },
                 nodes_visited: 0,
+                mvs: Vec::new(),
             }
         }
 
-        let mut best = MoveStats {
+        let mut best = MoveStats{
             mv: None,
-            score: Score::Lose,
-            turns: 0,
+            score: TimedScore {
+                score: Score::Lose,
+                turns: 0,
+            },
             nodes_visited: 0,
+            mvs: Vec::new(),
         };
 
-        if let Some(precomputed_move) = self.ally_ttable.get(board, plies)
+        if let Some(mut precomputed_move) = self.ally_ttable.get(board, plies)
         {
+            precomputed_move.mvs = Vec::new();
             return precomputed_move;
         }
 
         for mv in moves
         {
-
             /* Make a clone of the board so we don't break this one */
             let mut board_clone = board.clone();
             board_clone.do_move(&mv);
@@ -190,11 +199,18 @@ impl<B> Minimax<B>
             /* Find enemy's best move */
             let enemy_move = self.min(&board_clone, plies - 1, alpha, beta);
 
-            if best.mv.is_none() || enemy_move > best
+//            if plies == 5 {
+//                println!("  my move: {}", mv);
+//                println!("  score: {:?}", enemy_move.score);
+//                println!("  a: {:?} b {:?}", alpha, beta);
+//            }
+
+            if best.mv.is_none() || enemy_move.score > best.score
             {
                 best.mv = Some(mv);
                 best.score = enemy_move.score;
-                best.turns = enemy_move.turns + 1;
+                best.score.turns += 1;
+                best.mvs = enemy_move.mvs.clone();
             }
 
             best.nodes_visited += enemy_move.nodes_visited + 1;
@@ -202,21 +218,26 @@ impl<B> Minimax<B>
             /* Set α and break on β ≤ α */
             if best.score > alpha
             {
-                alpha = enemy_move.score;
+                alpha = best.score;
             }
             if alpha >= beta
             {
+                if plies == 5 {
+                    println!("  PRUNED");
+                }
                 break;
             }
         }
 
+        best.mvs.push(best.mv.clone().unwrap());
         self.ally_ttable.insert(board.clone(), best.clone(), plies);
 
         best
     }
 
     /// Generates best move for enemy
-    fn min(&mut self, board: &B, plies: u32, alpha: Score, mut beta: Score) -> MoveStats<B::Move>
+    fn min(&mut self, board: &B, plies: u32, alpha: TimedScore, mut beta: TimedScore) -> MoveStats<B::Move>
+    where <B as Board>::Move: fmt::Display
     {
         let moves = board.gen_enemy_moves();
 
@@ -227,9 +248,12 @@ impl<B> Minimax<B>
             {
                 mv: None,
                 /* If enemy can't move, we win. */
-                score: Score::Win,
-                turns: 0,
+                score: TimedScore {
+                    score: Score::Win,
+                    turns: 0,
+                },
                 nodes_visited: 0,
+                mvs: Vec::new(),
             };
         }
 
@@ -239,18 +263,24 @@ impl<B> Minimax<B>
             return MoveStats
             {
                 mv: None,
-                score: board.score(),
-                turns: 0,
+                score: TimedScore {
+                    score: board.score(),
+                    turns: 0,
+                },
                 nodes_visited: 0,
+                mvs: Vec::new(),
             }
         }
 
         let mut best = MoveStats {
             mv: None,
             /* Technically doesn't matter, but for consistancy's sake */
-            score: Score::Win,
-            turns: 0,
+            score: TimedScore {
+                score: Score::Win,
+                turns: 0,
+            },
             nodes_visited: 0,
+            mvs: Vec::new(),
         };
 
         if let Some(precomputed_move) = self.enemy_ttable.get(board, plies)
@@ -264,14 +294,19 @@ impl<B> Minimax<B>
             let mut board_clone = board.clone();
             board_clone.do_move(&mv);
 
+            if plies == 6 {
+                println!("ENEMY {}", mv);
+            }
+
             /* Find ally's best move */
             let ally_move = self.max(&board_clone, plies - 1, alpha, beta);
 
-            if best.mv.is_none() || ally_move.enemy_cmp(&best) == Ordering::Less
+            if best.mv.is_none() || ally_move.score < best.score
             {
                 best.mv = Some(mv);
                 best.score = ally_move.score;
-                best.turns = ally_move.turns + 1;
+                best.score.turns += 1;
+                best.mvs = ally_move.mvs.clone();
             }
 
             best.nodes_visited += ally_move.nodes_visited + 1;
@@ -279,14 +314,15 @@ impl<B> Minimax<B>
             /* Set β and break on β ≤ α */
             if best.score < beta
             {
-                beta = ally_move.score;
+                beta = best.score;
             }
-            if alpha >= beta
+            if beta <= alpha
             {
                 break;
             }
         }
 
+        best.mvs.push(best.mv.clone().unwrap());
         self.enemy_ttable.insert(board.clone(), best.clone(), plies);
 
         best
@@ -298,6 +334,7 @@ mod tests
 {
     use super::{Team, Score, Minimax, MoveStats};
     use board::Board;
+    use std::num::NonZeroUsize;
 
     #[derive(Clone,PartialEq,Eq,Debug)]
     struct SimpleMove(usize);
@@ -396,9 +433,15 @@ mod tests
     }
 
     #[test]
+    fn test_move_stats_ord()
+    {
+        assrt!()
+    }
+
+    #[test]
     fn test_minimax()
     {
-        let mut minimax = Minimax::new(100);
+        let mut minimax = Minimax::new(NonZeroUsize::new(100).unwrap());
         let game1 =
         SimpleBoard::Node(vec![
             SimpleBoard::Node(vec![
