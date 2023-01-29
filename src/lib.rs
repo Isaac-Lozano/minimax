@@ -223,7 +223,7 @@ impl<B> Minimax<B>
             if alpha >= beta
             {
                 if plies == 5 {
-                    println!("  PRUNED");
+//                    println!("  PRUNED");
                 }
                 break;
             }
@@ -295,7 +295,7 @@ impl<B> Minimax<B>
             board_clone.do_move(&mv);
 
             if plies == 6 {
-                println!("ENEMY {}", mv);
+//                println!("ENEMY {}", mv);
             }
 
             /* Find ally's best move */
